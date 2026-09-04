@@ -73,4 +73,4 @@ jobs:
       url: https://carlonicolini.github.io/skfolio-regime/
     steps:
       - name: Deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
