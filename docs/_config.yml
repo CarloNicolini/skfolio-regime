@@ -1,0 +1,32 @@
+# GitHub Pages / Jekyll configuration for the built Sphinx HTML.
+#
+# Sphinx writes directories that start with `_` (`_static`, `_modules`, …).
+# Jekyll ignores those unless they are listed under `include`. HTML files
+# produced by Sphinx have no YAML front matter, so Jekyll copies them as
+# static files (Liquid is not applied).
+#
+# The published site is https://carlonicolini.github.io/skfolio-regime/
+
+title: skfolio-regime
+description: Regime-aware cross-validation for skfolio
+url: https://carlonicolini.github.io
+baseurl: "/skfolio-regime"
+repository: CarloNicolini/skfolio-regime
+
+include:
+  - _static
+  - _images
+  - _modules
+  - _sources
+  - _downloads
+  - _gen
+  - _sphinx_design_static
+  - .nojekyll
+
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - vendor
+  - node_modules
+  - README.md
+  - README.rst

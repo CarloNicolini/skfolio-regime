@@ -43,6 +43,15 @@ For each WalkForward pair ``(train_wf, test)``:
 
 The test indices are never passed to the detector.
 
+Writing your own detector
+=========================
+
+``detector`` can be any :class:`~skfolio_regime.BaseRegimeDetector`. See
+:ref:`regime_detector` for the signature, the required ``labels_`` contract,
+and a complete non-HMM example. Use
+:func:`~skfolio_regime.check_regime_detector` in tests to validate a custom
+class.
+
 Train scopes
 ============
 
