@@ -1,0 +1,134 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "skfolio-regime"
+version = "0.1.0"
+description = "Regime-aware cross-validation for skfolio"
+readme = "README.rst"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [
+    { name = "Carlo Nicolini", email = "c.nicolini@ipazia.com" },
+]
+keywords = [
+    "portfolio",
+    "optimization",
+    "cross-validation",
+    "regime",
+    "hmm",
+    "skfolio",
+    "scikit-learn",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = [
+    "numpy>=1.23.4",
+    "pandas>=1.4.1",
+    "scikit-learn>=1.6.0",
+    "scipy>=1.15.2",
+    "skfolio>=1.0.0",
+]
+
+[project.urls]
+Documentation = "https://github.com/CarloNicolini/skfolio-regime"
+Repository = "https://github.com/CarloNicolini/skfolio-regime"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+]
+docs = [
+    "Sphinx>=7.2",
+    "sphinx-gallery",
+    "pydata-sphinx-theme~=0.16",
+    "matplotlib",
+    "sphinx-copybutton",
+    "numpydoc",
+    "sphinxext.opengraph",
+    "sphinx-favicon",
+    "kaleido",
+    "psutil",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "Sphinx>=7.2",
+    "sphinx-gallery",
+    "pydata-sphinx-theme~=0.16",
+    "matplotlib",
+    "sphinx-copybutton",
+    "numpydoc",
+    "sphinxext.opengraph",
+    "sphinx-favicon",
+    "kaleido",
+    "psutil",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/skfolio_regime"]
+
+[tool.ruff]
+include = ["pyproject.toml", "src/**/*.py", "tests/**/*.py", "examples/**/*.py"]
+line-length = 88
+src = ["src"]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "I",
+    "A",
+    "B",
+    "ISC",
+    "UP",
+    "RUF",
+    "D",
+]
+ignore = ["E203", "ISC001", "ISC002", "E111", "E114", "E117", "A005", "D401", "D205"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D"]
+"examples/**" = ["D", "B018", "E402"]
+"docs/**" = ["D", "A001"]
+
+[tool.ruff.lint.isort]
+case-sensitive = true
+
+[tool.ruff.lint.pycodestyle]
+max-line-length = 320
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.pytest.ini_options]
+addopts = [
+    "--import-mode=importlib",
+    "--doctest-modules",
+]
+doctest_optionflags = [
+    "NORMALIZE_WHITESPACE",
+    "ELLIPSIS",
+]
+testpaths = [
+    "tests",
+]
+pythonpath = ["src"]
