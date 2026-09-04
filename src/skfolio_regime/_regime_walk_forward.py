@@ -18,7 +18,7 @@ from skfolio.model_selection import WalkForward
 from skfolio.typing import ArrayLike, IntArray
 from skfolio.utils.tools import safe_split
 
-from skfolio_regime._base import BaseRegimeDetector
+from skfolio_regime._base import BaseRegimeDetector, validate_fitted_detector
 from skfolio_regime._gaussian_hmm import GaussianHMMDetector
 
 _TRAIN_SCOPES = {"all_past", "current_regime", "same_regime"}
@@ -45,9 +45,12 @@ class RegimeWalkForward(WalkForward):
         Length of each WalkForward training window, before regime filtering.
 
     detector : BaseRegimeDetector, optional
-        Regime detector fitted independently on each training window.
-        The default (``None``) uses
-        :class:`~skfolio_regime.GaussianHMMDetector` with two states.
+        A custom :class:`~skfolio_regime.BaseRegimeDetector`. Must be
+        cloneable (scikit-learn ``__init__`` contract) and set integer
+        ``labels_`` of length ``len(train)`` in ``fit``. See
+        :func:`~skfolio_regime.check_regime_detector`. The default
+        (``None``) uses :class:`~skfolio_regime.GaussianHMMDetector` with
+        two states.
 
     train_scope : {"current_regime", "same_regime", "all_past"}, default="current_regime"
         How training indices are filtered after decoding the train window:
@@ -274,11 +277,7 @@ class RegimeWalkForward(WalkForward):
             X_train, _ = safe_split(X, y, indices=train_wf, axis=0)
             fitted = sk.clone(detector)
             fitted.fit(X_train)
-            if not hasattr(fitted, "labels_"):
-                raise AttributeError(
-                    f"{type(fitted).__name__} must set `labels_` in `fit`."
-                )
-            last_labels = np.asarray(fitted.labels_)
+            last_labels = validate_fitted_detector(fitted, n_observations=len(train_wf))
             train, confirmed = self._filter_train(train_wf, last_labels)
             min_size = self._min_train_size(len(train_wf))
             too_short = train.size < min_size

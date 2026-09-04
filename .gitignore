@@ -54,6 +54,12 @@ docs/auto_examples/
 docs/generated/
 docs/_contents
 docs/sg_execution_times.rst
+docs/Gemfile.lock
+
+# Jekyll / GitHub Pages local builds
+_site/
+jekyll_src/
+vendor/
 
 # Jupyter
 .ipynb_checkpoints

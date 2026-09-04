@@ -23,10 +23,14 @@ _EPS = 1e-12
 
 
 def _rolling_std(x: FloatArray, window: int) -> FloatArray:
-    """Causal rolling standard deviation, including the current observation."""
+    """Causal rolling standard deviation, including the current observation.
+
+    Leading values with fewer than two observations are 0. The series is not
+    back-filled: that would copy later volatility into earlier times.
+    """
     series = pd.Series(np.asarray(x, dtype=float))
     vol = series.rolling(window=window, min_periods=2).std(ddof=0)
-    return vol.bfill().fillna(0.0).to_numpy(dtype=float)
+    return vol.fillna(0.0).to_numpy(dtype=float)
 
 
 def extract_regime_features(
@@ -35,6 +39,11 @@ def extract_regime_features(
     vol_window: int = 21,
 ) -> FloatArray:
     """Build a low-dimensional feature matrix from asset returns.
+
+    Features are **not** standardized here. :class:`GaussianHMMDetector`
+    centers and scales using statistics stored at ``fit`` time so that
+    :meth:`GaussianHMMDetector.predict` does not recompute the scaler on
+    the evaluation sample.
 
     Parameters
     ----------
@@ -45,7 +54,7 @@ def extract_regime_features(
         Feature construction:
 
         * ``mean``: cross-sectional mean return.
-        * ``vol``: rolling standard deviation of the cross-sectional mean.
+        * ``vol``: causal rolling standard deviation of the cross-sectional mean.
         * ``mean_vol``: both of the above.
         * ``full``: the raw return matrix.
 
@@ -55,12 +64,13 @@ def extract_regime_features(
     Returns
     -------
     features : ndarray of shape (n_observations, n_features)
-        Standardized features (zero mean, unit variance per column).
+        Raw (unstandardized) features. Non-finite values are replaced by 0.
     """
     x = np.asarray(X, dtype=float)
     if x.ndim != 2:
         raise ValueError(f"X must be 2d, got shape {x.shape}")
-    cs_mean = np.nanmean(x, axis=1)
+    x = np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+    cs_mean = np.mean(x, axis=1)
     if feature == "mean":
         features = cs_mean[:, np.newaxis]
     elif feature == "vol":
@@ -68,16 +78,33 @@ def extract_regime_features(
     elif feature == "mean_vol":
         features = np.column_stack((cs_mean, _rolling_std(cs_mean, vol_window)))
     elif feature == "full":
-        features = np.nan_to_num(x, nan=0.0)
+        features = x
     else:
         raise ValueError(
             f"`feature` must be 'mean', 'vol', 'mean_vol' or 'full', got {feature!r}."
         )
-    features = np.nan_to_num(features, nan=0.0)
-    scale = features.std(axis=0, keepdims=True)
+    return np.nan_to_num(features, nan=0.0, posinf=0.0, neginf=0.0)
+
+
+def standardize_features(
+    features: FloatArray,
+    mean: FloatArray | None = None,
+    scale: FloatArray | None = None,
+) -> tuple[FloatArray, FloatArray, FloatArray]:
+    """Center and scale features column-wise.
+
+    When ``mean`` and ``scale`` are omitted they are estimated from
+    ``features``. Passing the training statistics keeps ``predict`` aligned
+    with ``fit``.
+    """
+    features = np.asarray(features, dtype=float)
+    if mean is None or scale is None:
+        mean = features.mean(axis=0)
+        scale = features.std(axis=0)
+    mean = np.asarray(mean, dtype=float).reshape(-1)
+    scale = np.asarray(scale, dtype=float).reshape(-1)
     scale = np.where(scale < _EPS, 1.0, scale)
-    features = (features - features.mean(axis=0, keepdims=True)) / scale
-    return features
+    return (features - mean) / scale, mean, scale
 
 
 def merge_short_runs(labels: IntArray, min_size: int) -> IntArray:
@@ -202,6 +229,10 @@ def _forward_backward(
     log_gamma = log_alpha + log_beta
     log_gamma -= logsumexp(log_gamma, axis=1, keepdims=True)
 
+    if n_obs == 1:
+        log_xi = np.zeros((0, n_regimes, n_regimes))
+        return log_likelihood, log_gamma, log_xi
+
     log_xi = (
         log_alpha[:-1, :, np.newaxis]
         + log_trans[np.newaxis, :, :]
@@ -241,9 +272,12 @@ def _init_hmm(
     n_obs, n_features = X.shape
     rng = sku.check_random_state(random_state)
     means = np.zeros((n_regimes, n_features))
-    if n_obs < n_regimes:
-        means[:n_obs] = X
-        means[n_obs:] = X[-1]
+    unique_rows = np.unique(X, axis=0).shape[0]
+    if n_obs < n_regimes or unique_rows < n_regimes:
+        idx = rng.choice(n_obs, size=n_regimes, replace=True)
+        means = X[idx].copy()
+        if unique_rows == 1:
+            means = means + rng.normal(scale=0.01, size=means.shape)
     else:
         try:
             kmeans = skc.KMeans(
@@ -261,19 +295,41 @@ def _init_hmm(
         except ValueError:
             means = X[rng.choice(n_obs, size=n_regimes, replace=True)]
 
-    transmat = np.full((n_regimes, n_regimes), 0.1 / max(n_regimes - 1, 1))
-    np.fill_diagonal(transmat, 0.9 if n_regimes > 1 else 1.0)
+    transmat = _persistent_transmat(n_regimes)
     startprob = np.full(n_regimes, 1.0 / n_regimes)
 
     if covariance_type == "full":
-        covars = np.array([np.cov(X.T) + _MIN_COVAR * np.eye(n_features)] * n_regimes)
-        if covars.ndim == 2:
-            covars = np.stack([covars] * n_regimes)
+        covars = np.stack([_empirical_covariance(X) for _ in range(n_regimes)], axis=0)
     elif covariance_type == "spherical":
         covars = np.full(n_regimes, max(float(np.var(X)), _MIN_COVAR))
     else:
         covars = np.tile(np.maximum(X.var(axis=0), _MIN_COVAR), (n_regimes, 1))
     return startprob, transmat, means, covars
+
+
+def _persistent_transmat(n_regimes: int) -> FloatArray:
+    transmat = np.full((n_regimes, n_regimes), 0.1 / max(n_regimes - 1, 1))
+    np.fill_diagonal(transmat, 0.9 if n_regimes > 1 else 1.0)
+    return transmat
+
+
+def _empirical_covariance(X: FloatArray) -> FloatArray:
+    """Unbiased-enough empirical covariance with a well-defined 1d shape."""
+    n_obs, n_features = X.shape
+    eye = np.eye(n_features)
+    if n_obs < 2 or n_features == 0:
+        return _MIN_COVAR * eye
+    cov = np.cov(X, rowvar=False, ddof=0)
+    cov = np.array(cov, ndmin=2, dtype=float)
+    if cov.shape != (n_features, n_features):
+        cov = np.var(X) * eye
+    if not np.all(np.isfinite(cov)):
+        cov = np.var(X, axis=0)
+        if np.ndim(cov) == 1:
+            cov = np.diag(np.maximum(cov, _MIN_COVAR))
+        else:
+            cov = _MIN_COVAR * eye
+    return cov + _MIN_COVAR * eye
 
 
 def _m_step(
@@ -282,18 +338,36 @@ def _m_step(
     log_xi: FloatArray,
     covariance_type: str,
 ) -> tuple[FloatArray, FloatArray, FloatArray, FloatArray]:
-    gamma = np.clip(np.exp(log_gamma), _EPS, None)
-    xi = np.clip(np.exp(log_xi), _EPS, None)
+    gamma = np.exp(log_gamma)
+    gamma = np.maximum(gamma, 0.0)
+    row_sum = gamma.sum(axis=1, keepdims=True)
+    gamma = np.divide(
+        gamma,
+        row_sum,
+        out=np.full_like(gamma, 1.0 / gamma.shape[1]),
+        where=row_sum > 0,
+    )
     n_regimes = gamma.shape[1]
     n_features = X.shape[1]
 
     startprob = gamma[0]
-    startprob = startprob / startprob.sum()
+    startprob = startprob / max(float(startprob.sum()), _EPS)
 
-    transmat = xi.sum(axis=0)
-    transmat = transmat / transmat.sum(axis=1, keepdims=True)
-    transmat = np.maximum(transmat, _EPS)
-    transmat = transmat / transmat.sum(axis=1, keepdims=True)
+    if log_xi.shape[0] == 0:
+        transmat = _persistent_transmat(n_regimes)
+    else:
+        xi = np.exp(log_xi)
+        xi = np.maximum(xi, 0.0)
+        transmat = xi.sum(axis=0)
+        trans_row = transmat.sum(axis=1, keepdims=True)
+        transmat = np.divide(
+            transmat,
+            trans_row,
+            out=_persistent_transmat(n_regimes),
+            where=trans_row > 0,
+        )
+        transmat = np.maximum(transmat, _EPS)
+        transmat = transmat / transmat.sum(axis=1, keepdims=True)
 
     nk = gamma.sum(axis=0) + _EPS
     means = (gamma.T @ X) / nk[:, np.newaxis]
@@ -363,7 +437,21 @@ def fit_gaussian_hmm(
         if best is None or (np.isfinite(log_likelihood) and log_likelihood > best[-1]):
             best = (startprob, transmat, means, covars, float(log_likelihood))
 
-    assert best is not None
+    if best is None or not np.isfinite(best[-1]):
+        _, n_features = X.shape
+        startprob = np.ones(n_regimes) / n_regimes
+        transmat = _persistent_transmat(n_regimes)
+        means = np.zeros((n_regimes, n_features))
+        if covariance_type == "full":
+            covars = np.stack(
+                [_MIN_COVAR * np.eye(n_features) for _ in range(n_regimes)]
+            )
+        elif covariance_type == "spherical":
+            covars = np.full(n_regimes, _MIN_COVAR)
+        else:
+            covars = np.full((n_regimes, n_features), _MIN_COVAR)
+        return startprob, transmat, means, covars, float(-np.inf)
+
     return best
 
 
@@ -434,8 +522,15 @@ class GaussianHMMDetector(BaseRegimeDetector):
     covars_ : ndarray
         Emission covariances. Shape depends on ``covariance_type``.
 
+    feature_mean_ : ndarray of shape (n_regime_features,)
+        Feature means used to standardize the HMM inputs at ``fit``.
+
+    feature_scale_ : ndarray of shape (n_regime_features,)
+        Feature scales used to standardize the HMM inputs at ``fit``.
+
     log_likelihood_ : float
-        Log-likelihood of the selected EM run (on the feature matrix).
+        Log-likelihood of the selected EM run (on the standardized feature
+        matrix).
 
     n_features_in_ : int
         Number of assets seen during ``fit``.
@@ -511,8 +606,8 @@ class GaussianHMMDetector(BaseRegimeDetector):
                 f"`vol_window` must be an integer >= 2, got {self.vol_window!r}."
             )
 
-    def _features(self, X: ArrayLike) -> FloatArray:
-        X_arr = skv.check_array(X, dtype=float, ensure_all_finite=False)
+    def _raw_features(self, X: ArrayLike, *, reset: bool) -> FloatArray:
+        X_arr = self._validate_input(X, reset=reset)
         return extract_regime_features(
             X_arr, feature=self.feature, vol_window=self.vol_window
         )
@@ -534,14 +629,10 @@ class GaussianHMMDetector(BaseRegimeDetector):
             Fitted detector.
         """
         self._validate_params()
-        X_arr = skv.validate_data(
-            self, X, dtype=float, ensure_all_finite=False, reset=True
-        )
-        features = extract_regime_features(
-            X_arr, feature=self.feature, vol_window=self.vol_window
-        )
+        raw = self._raw_features(X, reset=True)
+        features, mean, scale = standardize_features(raw)
         n_obs = features.shape[0]
-        n_regimes = min(int(self.n_regimes), n_obs)
+        n_regimes = min(int(self.n_regimes), max(n_obs, 1))
 
         startprob, transmat, means, covars, log_likelihood = fit_gaussian_hmm(
             features,
@@ -558,22 +649,38 @@ class GaussianHMMDetector(BaseRegimeDetector):
             np.log(np.maximum(transmat, _EPS)),
             log_emit,
         )
-        labels = merge_short_runs(labels, int(self.min_regime_size))
+        labels = merge_short_runs(
+            labels,
+            int(self.min_regime_size) if n_obs >= int(self.min_regime_size) else 1,
+        )
 
         self.startprob_ = startprob
         self.transmat_ = transmat
         self.means_ = means
         self.covars_ = covars
+        self.feature_mean_ = mean
+        self.feature_scale_ = scale
         self.log_likelihood_ = log_likelihood
         self.n_regimes_ = n_regimes
         self.labels_ = labels
-        self.change_points_ = self._change_points_from_labels(labels)
-        return self
+        return self._finalize_fit(n_obs)
 
     def predict(self, X: ArrayLike) -> IntArray:
-        """Decode regime labels on ``X`` with the fitted emission parameters."""
-        skv.check_is_fitted(self, "means_")
-        features = self._features(X)
+        """Decode regime labels on ``X`` with the fitted emission parameters.
+
+        Features are standardized with the mean and scale stored at ``fit``,
+        not with statistics of ``X``.
+        """
+        skv.check_is_fitted(self, ["means_", "feature_mean_", "feature_scale_"])
+        raw = self._raw_features(X, reset=False)
+        if raw.shape[1] != self.feature_mean_.shape[0]:
+            raise ValueError(
+                "Number of HMM features changed between fit and predict "
+                f"({self.feature_mean_.shape[0]} vs {raw.shape[1]})."
+            )
+        features, _, _ = standardize_features(
+            raw, mean=self.feature_mean_, scale=self.feature_scale_
+        )
         log_emit = _log_emissions(
             features, self.means_, self.covars_, self.covariance_type
         )
@@ -582,4 +689,7 @@ class GaussianHMMDetector(BaseRegimeDetector):
             np.log(np.maximum(self.transmat_, _EPS)),
             log_emit,
         )
-        return merge_short_runs(labels, int(self.min_regime_size))
+        merge_size = (
+            int(self.min_regime_size) if labels.size >= int(self.min_regime_size) else 1
+        )
+        return merge_short_runs(labels, merge_size)
