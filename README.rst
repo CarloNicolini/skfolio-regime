@@ -2,6 +2,14 @@
 skfolio-regime
 ==============
 
+.. image:: https://github.com/CarloNicolini/skfolio-regime/actions/workflows/ci.yml/badge.svg
+   :target: https://github.com/CarloNicolini/skfolio-regime/actions/workflows/ci.yml
+   :alt: CI
+
+.. image:: https://img.shields.io/badge/docs-GitHub%20Pages-blue
+   :target: https://carlonicolini.github.io/skfolio-regime/
+   :alt: Documentation
+
 .. skfolio-regime-shared-introduction-start
 
 Regime-aware walk-forward cross-validation for `skfolio`_.
@@ -65,12 +73,19 @@ Quick start
 Documentation
 =============
 
-Build the Sphinx documentation:
+The user guide is published at
+https://carlonicolini.github.io/skfolio-regime/
+
+Build it locally:
 
 .. code-block:: bash
 
     source .venv/bin/activate
     make -C docs html
+
+GitHub Actions runs Sphinx and then Jekyll (``docs/_config.yml``,
+``baseurl: /skfolio-regime``) and deploys to GitHub Pages. Enable
+**Settings → Pages → Source: GitHub Actions** on the repository.
 
 .. _uv: https://docs.astral.sh/uv/
 
