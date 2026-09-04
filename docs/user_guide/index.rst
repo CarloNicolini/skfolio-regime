@@ -15,3 +15,4 @@ are a detector protocol, a Gaussian HMM implementation, and a
 
     Install <install>
     Model Selection <model_selection>
+    Regime Detectors <regime_detector>

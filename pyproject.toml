@@ -43,7 +43,7 @@ dependencies = [
 ]
 
 [project.urls]
-Documentation = "https://github.com/CarloNicolini/skfolio-regime"
+Documentation = "https://carlonicolini.github.io/skfolio-regime/"
 Repository = "https://github.com/CarloNicolini/skfolio-regime"
 
 [project.optional-dependencies]

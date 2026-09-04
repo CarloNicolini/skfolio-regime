@@ -45,4 +45,7 @@ Functions
     :toctree: generated/
     :template: function.rst
 
+    check_regime_detector
     extract_regime_features
+    standardize_features
+    validate_fitted_detector

@@ -28,11 +28,19 @@ extensions = [
 ]
 
 templates_path = ["_templates"]
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+exclude_patterns = [
+    "_build",
+    "Thumbs.db",
+    ".DS_Store",
+    "Gemfile",
+    "Gemfile.lock",
+    "_config.yml",
+]
 
 html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
 html_title = "skfolio-regime"
+html_baseurl = "https://carlonicolini.github.io/skfolio-regime/"
 html_theme_options = {
     "github_url": "https://github.com/CarloNicolini/skfolio-regime",
     "show_toc_level": 2,
@@ -83,7 +91,7 @@ sphinx_gallery_conf = {
 
 favicons = [{"rel": "icon", "href": "favicon.svg", "type": "image/svg+xml"}]
 
-ogp_site_url = "https://github.com/CarloNicolini/skfolio-regime"
+ogp_site_url = "https://carlonicolini.github.io/skfolio-regime/"
 ogp_site_name = "skfolio-regime"
 
 

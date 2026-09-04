@@ -1,0 +1,76 @@
+# Build Sphinx docs, run Jekyll, and publish GitHub Pages.
+
+name: Documentation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Sphinx + Jekyll
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Install Python package
+        run: uv sync --frozen --group dev
+
+      - name: Build Sphinx HTML
+        run: uv run sphinx-build -b html docs docs/_build/html
+
+      - name: Stage Sphinx HTML for Jekyll
+        run: |
+          mkdir -p jekyll_src
+          cp -a docs/_build/html/. jekyll_src/
+          cp docs/_config.yml jekyll_src/_config.yml
+          cp docs/Gemfile jekyll_src/Gemfile
+          touch jekyll_src/.nojekyll
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - name: Build Jekyll
+        working-directory: jekyll_src
+        env:
+          JEKYLL_ENV: production
+        run: |
+          bundle install
+          bundle exec jekyll build \
+            --baseurl "/skfolio-regime" \
+            --destination "${GITHUB_WORKSPACE}/_site"
+          touch "${GITHUB_WORKSPACE}/_site/.nojekyll"
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    name: GitHub Pages
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: https://carlonicolini.github.io/skfolio-regime/
+    steps:
+      - name: Deploy
+        uses: actions/deploy-pages@v4
