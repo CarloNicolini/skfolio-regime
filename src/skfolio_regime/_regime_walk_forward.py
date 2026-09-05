@@ -76,7 +76,8 @@ class RegimeWalkForward(WalkForward):
         Action when the filtered training set is too short or the regime is
         unconfirmed. ``fallback`` restores the WalkForward training window so
         that the number of splits matches the parent splitter. ``skip`` drops
-        the fold.
+        the fold. When using ``skip``, every detector ``random_state`` must be
+        set so that :meth:`get_n_splits` and :meth:`split` accept the same folds.
 
     freq : str | pandas.offsets.DateOffset, optional
         Calendar frequency forwarded to :class:`~skfolio.model_selection.WalkForward`.
@@ -327,4 +328,16 @@ class RegimeWalkForward(WalkForward):
             return super().get_n_splits(X=X, y=y, groups=groups)
         if X is None:
             raise ValueError("The 'X' parameter should not be None.")
+        detector = self._resolved_detector()
+        unset_random_states = [
+            name
+            for name, value in detector.get_params(deep=True).items()
+            if name.split("__")[-1] == "random_state" and value is None
+        ]
+        if unset_random_states:
+            raise ValueError(
+                "`short_train='skip'` requires a deterministic detector because "
+                "`get_n_splits` and `split` fit it separately. Set every "
+                "`random_state` parameter to an integer."
+            )
         return sum(1 for _ in self.split(X, y, groups))

@@ -49,6 +49,25 @@ def test_same_regime_keeps_all_matching_labels():
     np.testing.assert_array_equal(train, np.arange(6, 10))
 
 
+def test_same_regime_keeps_recurring_non_contiguous_observations():
+    X = np.random.default_rng(0).normal(size=(20, 2))
+
+    class RecurringDetector(FixedLabelsDetector):
+        def fit(self, X, y=None):
+            self.labels_ = np.resize([0, 0, 1, 1], X.shape[0])
+            return self._finalize_fit(X.shape[0])
+
+    cv = RegimeWalkForward(
+        test_size=2,
+        train_size=8,
+        detector=RecurringDetector(),
+        train_scope="same_regime",
+        min_train_size=1,
+    )
+    train, _test = next(cv.split(X))
+    np.testing.assert_array_equal(train, [2, 3, 6, 7])
+
+
 def test_all_past_keeps_walk_forward_train():
     X = np.random.default_rng(0).normal(size=(25, 2))
     base = WalkForward(test_size=3, train_size=10)
@@ -103,6 +122,35 @@ def test_detector_never_sees_test_rows():
         assert det.seen_max_ == float(train.max())
         assert train.max() < test.min()
         assert np.intersect1d(train, test).size == 0
+
+
+def test_splits_do_not_change_when_future_returns_change():
+    rng = np.random.default_rng(0)
+    prefix = rng.normal(size=(80, 3))
+    calm_future = np.zeros((40, 3))
+    extreme_future = np.full((40, 3), 1_000.0)
+    detector = GaussianHMMDetector(
+        n_regimes=2,
+        feature="mean_vol",
+        min_regime_size=5,
+        n_init=2,
+        random_state=0,
+    )
+    params = dict(
+        test_size=5,
+        train_size=30,
+        detector=detector,
+        min_train_size=5,
+    )
+    calm_splits = list(RegimeWalkForward(**params).split(np.vstack((prefix, calm_future))))
+    extreme_splits = list(
+        RegimeWalkForward(**params).split(np.vstack((prefix, extreme_future)))
+    )
+    for calm, extreme in zip(calm_splits, extreme_splits, strict=True):
+        if calm[1].max() >= len(prefix):
+            break
+        np.testing.assert_array_equal(calm[0], extreme[0])
+        np.testing.assert_array_equal(calm[1], extreme[1])
 
 
 def test_short_train_fallback_preserves_n_splits():
@@ -262,3 +310,32 @@ def test_get_n_splits_requires_x_when_skipping():
     )
     with pytest.raises(ValueError, match="X"):
         cv.get_n_splits()
+
+
+def test_get_n_splits_rejects_stochastic_skip_detector():
+    X = np.random.default_rng(0).normal(size=(80, 3))
+    cv = RegimeWalkForward(
+        test_size=5,
+        train_size=30,
+        short_train="skip",
+        detector=GaussianHMMDetector(random_state=None),
+        min_train_size=10,
+    )
+    with pytest.raises(ValueError, match="random_state"):
+        cv.get_n_splits(X)
+
+
+def test_get_n_splits_is_repeatable_with_deterministic_skip_detector():
+    X = np.random.default_rng(0).normal(size=(80, 3))
+    cv = RegimeWalkForward(
+        test_size=5,
+        train_size=30,
+        short_train="skip",
+        detector=GaussianHMMDetector(
+            min_regime_size=1,
+            n_init=1,
+            random_state=0,
+        ),
+        min_train_size=10,
+    )
+    assert cv.get_n_splits(X) == cv.get_n_splits(X)

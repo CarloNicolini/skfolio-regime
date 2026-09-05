@@ -6,11 +6,16 @@ import numpy as np
 import pytest
 from sklearn.base import clone
 
+import skfolio_regime._gaussian_hmm as ghmm
 from skfolio_regime import GaussianHMMDetector
 from skfolio_regime._gaussian_hmm import (
+    _EPS,
     _empirical_covariance,
+    _forward_backward,
+    _log_emissions,
     _rolling_std,
     extract_regime_features,
+    fit_gaussian_hmm,
     merge_short_runs,
     standardize_features,
 )
@@ -92,6 +97,52 @@ def test_hmm_reproducible_with_random_state():
     b = GaussianHMMDetector(n_regimes=2, feature="mean_vol", random_state=1).fit(X)
     np.testing.assert_array_equal(a.labels_, b.labels_)
     np.testing.assert_allclose(a.log_likelihood_, b.log_likelihood_)
+
+
+def test_fit_hmm_likelihood_matches_returned_parameters():
+    X = np.random.default_rng(12).normal(size=(80, 3))
+    startprob, transmat, means, covars, reported = fit_gaussian_hmm(
+        X,
+        n_regimes=2,
+        covariance_type="diag",
+        n_iter=1,
+        tol=1e-4,
+        n_init=3,
+        random_state=0,
+    )
+    emissions = _log_emissions(X, means, covars, "diag")
+    actual, *_ = _forward_backward(
+        np.log(np.maximum(startprob, _EPS)),
+        np.log(np.maximum(transmat, _EPS)),
+        emissions,
+    )
+    np.testing.assert_allclose(reported, actual)
+
+
+def test_fit_hmm_ignores_failed_initialization(monkeypatch):
+    X = np.random.default_rng(13).normal(size=(60, 2))
+    original = ghmm._init_hmm
+    calls = 0
+
+    def fail_first_initialization(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        startprob, transmat, means, covars = original(*args, **kwargs)
+        if calls == 1:
+            means[:] = np.nan
+        return startprob, transmat, means, covars
+
+    monkeypatch.setattr(ghmm, "_init_hmm", fail_first_initialization)
+    *_, log_likelihood = fit_gaussian_hmm(
+        X,
+        n_regimes=2,
+        covariance_type="diag",
+        n_iter=3,
+        tol=1e-4,
+        n_init=2,
+        random_state=0,
+    )
+    assert np.isfinite(log_likelihood)
 
 
 def test_hmm_clone_and_predict():

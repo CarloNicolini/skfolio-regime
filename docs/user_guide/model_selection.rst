@@ -42,6 +42,10 @@ For each WalkForward pair ``(train_wf, test)``:
    ``train_wf`` (``short_train="fallback"``, default) or skip the fold.
 
 The test indices are never passed to the detector.
+When ``short_train="skip"``, set every detector ``random_state``. Otherwise
+separate calls to ``get_n_splits`` and ``split`` can accept different folds,
+so the splitter raises a ``ValueError`` instead of returning an inconsistent
+split count.
 
 Writing your own detector
 =========================

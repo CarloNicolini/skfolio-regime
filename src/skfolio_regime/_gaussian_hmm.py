@@ -434,7 +434,17 @@ def fit_gaussian_hmm(
             if abs(log_likelihood - prev_ll) < tol:
                 break
             prev_ll = log_likelihood
-        if best is None or (np.isfinite(log_likelihood) and log_likelihood > best[-1]):
+
+        if np.isfinite(log_likelihood):
+            log_emit = _log_emissions(X, means, covars, covariance_type)
+            log_likelihood, _, _ = _forward_backward(
+                np.log(np.maximum(startprob, _EPS)),
+                np.log(np.maximum(transmat, _EPS)),
+                log_emit,
+            )
+        if np.isfinite(log_likelihood) and (
+            best is None or log_likelihood > best[-1]
+        ):
             best = (startprob, transmat, means, covars, float(log_likelihood))
 
     if best is None or not np.isfinite(best[-1]):
